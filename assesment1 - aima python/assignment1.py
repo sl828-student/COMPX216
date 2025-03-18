@@ -1,6 +1,7 @@
 from time import time
 from search import *
 from assignment1aux import *
+import heapq
 
 def read_initial_state_from_file(filename):
     # Task 1
@@ -85,35 +86,42 @@ class ZenPuzzleGarden(Problem):
         # Return a boolean value indicating if a given state is solved.
         # Replace the line below with your code.
         map = state[0]
-        height = len(map)
-        width = len(map[0])
-        for i in range(height):
-            for j in range(width):
-                if not map[i][j]:
-                    return False
-        return True
+        return all(cell for row in map for cell in row)
 
     
 
 # Task 3
 # Implement an A* heuristic cost function and assign it to the variable below.
-astar_heuristic_cost = lambda node: sum(
-    min(
-        abs(rock[0] - rock_position[0]) + abs(rock[1] - rock_position[1])
-        for rock in [
-            (i, j)
-            for i in range(len(node.state[0]))
-            for j in range(len(node.state[0][0]))
-            if node.state[0][i][j] == 'rock'
-        ]
-    )
-    for rock_position in [
-        (i, j)
-        for i in range(len(node.state[0]))
-        for j in range(len(node.state[0][0]))
-        if node.state[0][i][j] == 'rock'
-    ]
-)
+def astar_heuristic_cost(node):
+    map = node.state[0]
+    unraked_tiles = set((i, j) for i, row in enumerate(map) for j, cell in enumerate(row) if not cell)
+    move_count = 0
+
+    while unraked_tiles:
+        # Start with the first unraked tile (or the monk's current position if available)
+        start_tile = unraked_tiles.pop()
+        # Try to rake in all four directions
+        for direction in ['up', 'down', 'left', 'right']:
+            current_tile = start_tile
+            while True:
+                if direction == 'up':
+                    next_tile = (current_tile[0] - 1, current_tile[1])
+                elif direction == 'down':
+                    next_tile = (current_tile[0] + 1, current_tile[1])
+                elif direction == 'left':
+                    next_tile = (current_tile[0], current_tile[1] - 1)
+                elif direction == 'right':
+                    next_tile = (current_tile[0], current_tile[1] + 1)
+                
+                # Check if the next tile is valid and unraked
+                if next_tile in unraked_tiles:
+                    unraked_tiles.remove(next_tile)
+                    current_tile = next_tile
+                else:
+                    break
+        move_count += 1
+
+    return move_count
     
 
 def beam_search(problem, f, beam_width):
@@ -123,17 +131,20 @@ def beam_search(problem, f, beam_width):
     # Experiment with the beam width in the test code to find a solution.
     # Replace the line below with your code.
     node = Node(problem.initial)
-    frontier = [node]
+    frontier = [(f(node), id(node), node)]  # Store (priority, unique ID, node) tuples
+    explored = set()  # Track explored states to avoid cycles
+
     while frontier:
         new_frontier = []
-        for node in frontier:
+        for _, _, node in heapq.nsmallest(beam_width, frontier, key=lambda x: x[0]):
+            if problem.goal_test(node.state):
+                return node
+            explored.add(node.state)
             for action in problem.actions(node.state):
                 child = node.child_node(problem, action)
-                if problem.goal_test(child.state):
-                    return child
-                new_frontier.append(child)
-        new_frontier.sort(key=f)
-        frontier = new_frontier[:beam_width]
+                if child.state not in explored:
+                    heapq.heappush(new_frontier, (f(child), id(child), child))
+        frontier = new_frontier[:beam_width]  # Limit frontier size to beam_width
     return None
 
 if __name__ == "__main__":
@@ -175,7 +186,7 @@ if __name__ == "__main__":
     
     print('Running beam search.')
     before_time = time()
-    node = beam_search(garden, lambda n: n.path_cost + astar_heuristic_cost(n), 50)
+    node = beam_search(garden, lambda n: n.path_cost + astar_heuristic_cost(n), 40)
     after_time = time()
     print(f'Beam search took {after_time - before_time} seconds.')
     if node:
